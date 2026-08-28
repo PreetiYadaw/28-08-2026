@@ -125,3 +125,40 @@ def apply_mandatory_fields(payload: Dict[str, Dict[str, Any]]) -> tuple[Dict[str
 
     return payload, generated_rrn
 
+
+
+
+def _strip_json_fences(content: str) -> str:
+    content = (content or "").strip()
+    if content.startswith("```"):
+        lines = content.split("\n")
+        content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
+    return content.replace("```json", "").replace("```", "").strip()
+
+
+def _sanitize_positive_testcases(
+    testcases: List[Dict[str, Any]],
+    payload: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Defensive guard for rule #2: if the LLM ever slips and invents a "valid" value
+    for a field in a POSITIVE test case that wasn't in the field's given value list,
+    force it back to that field's baseline value.
+    """
+    allowed_values = {
+        field: set(str(v) for v in _field_values(spec))
+        for field, spec in payload.items()
+    }
+    baseline = {field: _baseline_value(spec) for field, spec in payload.items()}
+
+    for tc in testcases:
+        if tc.get("Test Case Type") != "Positive":
+            continue
+        td = tc.get("Test Data") or {}
+        for field, val in list(td.items()):
+            if field in allowed_values and str(val) not in allowed_values[field]:
+                td[field] = baseline.get(field, val)
+        tc["Test Data"] = td
+    return testcases
+
+
